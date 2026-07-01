@@ -1,0 +1,19 @@
+{
+  "name": "zcode-vision",
+  "description": "ZCode Vision plugin marketplace.",
+  "version": 1,
+  "plugins": [
+    {
+      "name": "zcode-vision",
+      "description": "Vision routing for text-only ZCode sessions using configured image-capable ZCode models.",
+      "version": "0.1.0",
+      "source": ".",
+      "tags": [
+        "vision",
+        "mcp",
+        "skill",
+        "screenshot"
+      ]
+    }
+  ]
+}

@@ -29,6 +29,24 @@ The detailed design comparison is in [docs/zcode-design.md](docs/zcode-design.md
 
 ## Usage
 
+### Install From ZCode UI
+
+Open **Settings > Plugin Management > Discover**, click **+**, and add this repository path or URL as a plugin marketplace:
+
+```text
+/Users/wezzard/Artifacts/Repositories/com.github/WeZZard/zcode-vision
+```
+
+or:
+
+```text
+https://github.com/WeZZard/zcode-vision
+```
+
+The repository includes `marketplace.json`, so ZCode can discover and install the `zcode-vision` plugin from it.
+
+### Use
+
 After installing/enabling this plugin in ZCode, use `$zcode-vision` for visual tasks or run `/vision-model` to pick or re-pick the model.
 
 To inspect discovery from a shell:
@@ -38,6 +56,20 @@ npm run models -- --all
 ```
 
 If discovery returns no models, enable a ZCode provider/account model that exposes image input and text output.
+
+### Local Development Shortcut
+
+For a project-local checkout without using the marketplace UI, add this to the target project's `zcode.json`:
+
+```json
+{
+  "plugins": {
+    "dirs": [
+      "/Users/wezzard/Artifacts/Repositories/com.github/WeZZard/zcode-vision"
+    ]
+  }
+}
+```
 
 ## Development
 
