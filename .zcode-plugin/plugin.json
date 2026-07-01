@@ -1,0 +1,28 @@
+{
+  "name": "zcode-vision",
+  "version": "0.1.0",
+  "description": "Vision routing for text-only ZCode sessions using configured image-capable ZCode models.",
+  "skills": "skills",
+  "commands": "commands",
+  "mcpServers": {
+    "zcode-vision": {
+      "command": "node",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/mcp/zcode-vision-server.mjs"
+      ],
+      "cwd": "${ZCODE_PROJECT_DIR}",
+      "env": {
+        "ZCODE_VISION_DATA_DIR": "${ZCODE_PLUGIN_DATA}",
+        "ZCODE_MODEL_CATALOG_PATH": "${user_config.model_catalog_path}"
+      }
+    }
+  },
+  "userConfig": {
+    "model_catalog_path": {
+      "type": "string",
+      "title": "Model catalog path",
+      "description": "Optional path to a ZCode model catalog JSON file. Leave empty to use the catalog bundled with ZCode.app.",
+      "default": ""
+    }
+  }
+}
