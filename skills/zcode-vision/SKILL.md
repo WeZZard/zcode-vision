@@ -1,39 +1,52 @@
 ---
 name: zcode-vision
 description: >-
-  Use when a ZCode session is running a text-only model and a task requires
-  reading image pixels, screenshots, visual layout, visible state, color,
-  alignment, or comparison. Discovers image-capable ZCode provider models,
-  asks the user to pick one when needed, then analyzes local image files via
-  the zcode-vision MCP server.
+  Use when a ZCode session needs to pick a configured model for image,
+  screenshot, visual layout, visible state, color, alignment, or comparison
+  work. Runs the bundled discovery script and persists the selected exact
+  provider/model id.
 ---
 
 # ZCode Vision
 
-Use this skill only when the active model cannot see images itself. If the active model is already vision-capable, use native multimodal input instead.
+Use this skill only to select or verify the model for visual work. If the active model can already see images, use native multimodal input directly.
 
 ## Difference From OpenCode Vision
 
 OpenCode can run a JavaScript plugin hook that mutates config, registers `vision-*` subagents dynamically, transforms dropped user images into files, and injects model-selection hints into the system prompt.
 
-ZCode plugins are static bundles of skills, commands, and MCP servers. The stable plugin surface does not provide an OpenCode-style runtime config hook or chat-message transform, so this skill uses the `zcode-vision` MCP server:
+ZCode plugins are static bundles. The bundled ZCode examples use scripts from skills, so this skill uses `scripts/zcode-vision-models.mjs` directly. There is no MCP server and no second-model delegation path.
 
-- `zcode_vision_models` discovers enabled ZCode provider models with image input and text output.
-- `zcode_vision_pick_model` uses native MCP elicitation when available, otherwise returns a capped shortlist for the user.
-- `zcode_vision_select_model` persists an exact `provider/model` choice.
-- `zcode_vision_analyze` sends local image files to the selected model through MCP sampling.
+The script reads `~/.zcode/v2/config.json`, enriches models from ZCode's bundled catalog when available, and applies `data/vision-model-hints.json` for known models whose runtime image capability is missing from config metadata.
+
+## Script Path
+
+Resolve the script from this skill directory before running it:
+
+```bash
+ZCODE_VISION_SCRIPT="<absolute path to this skill directory>/../../scripts/zcode-vision-models.mjs"
+```
+
+Do not assume the current working directory is the plugin root.
 
 ## Workflow
 
 1. Decide whether pixels are needed. Accessibility trees or text tool output are enough for label/state existence checks; screenshots are needed for layout, color, alignment, readability, visual comparison, and visible rendering quality.
-2. Gather local image paths. Prefer screenshot tool options that write a file. If the user only attached an image without a path, ask for a path or create a screenshot file with the relevant browser/computer tool; ZCode does not expose OpenCode's dropped-image transform hook here.
-3. Assign short IDs such as `current`, `before`, `after`, `reference`, or `detail`.
-4. Call `zcode_vision_pick_model` before the first analysis. If it returns `selectionRequired: true`, ask the user to choose one exact `models[].model` and call `zcode_vision_select_model`.
-5. Call `zcode_vision_analyze` with:
-   - `task`: the exact visual question.
-   - `images`: objects containing `id`, `path`, and optional `reason`.
-   - `responseTemplate`: a small JSON-compatible shape suited to the task.
-   - `responseRules`: concise constraints such as evidence, uncertainty, pass/fail threshold, or comparison rules.
-6. Use the returned `parsedJson` when present; otherwise use `text`. If `actualModel` differs from `requestedModel`, mention the actual model when relaying evidence.
+2. Run the script:
 
-Do not invent a model. Use only exact model IDs returned by `zcode_vision_models` or `zcode_vision_pick_model`.
+   ```bash
+   node "$ZCODE_VISION_SCRIPT"
+   ```
+
+3. If `persistedChoice` exists, use that exact `selectedModel`.
+4. If `selectionRequired` is `true`, ask the user to choose one exact `models[].model`, then persist it:
+
+   ```bash
+   node "$ZCODE_VISION_SCRIPT" --model "<provider/model>"
+   ```
+
+5. If no models are returned, report the script warnings. Do not invent a model.
+6. Before a visual task, switch the active ZCode model to the selected exact model id using the model picker or a ZCode model-switch command if available.
+7. Ask the visual question through ZCode's native multimodal runtime with the image attachment or local screenshot path.
+
+Use only exact model IDs returned by the script.

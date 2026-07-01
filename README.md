@@ -1,29 +1,31 @@
 # ZCode Vision
 
-Give text-only ZCode sessions a clean path to vision-capable models already configured in ZCode.
+Script-assisted vision model selection for ZCode sessions.
 
 ## What It Does
 
-ZCode Vision ships as a ZCode plugin package:
+ZCode Vision ships as a small ZCode plugin package:
 
 - `.zcode-plugin/plugin.json`
 - `skills/zcode-vision/SKILL.md`
 - `commands/vision-model.md`
-- `mcp/zcode-vision-server.mjs`
+- `data/vision-model-hints.json`
 - `scripts/zcode-vision-models.mjs`
 
-It discovers enabled ZCode provider models that support image input and text output, asks you to pick one when needed, persists that exact `provider/model` id, and uses MCP sampling to analyze local image files.
+The script reads enabled ZCode provider models from `~/.zcode/v2/config.json`, enriches them from ZCode's bundled catalog when available, and applies provider-independent hint entries for models whose runtime vision capability is hidden by ZCode config metadata. It persists the selected exact `provider/model` id at `~/.zcode/vision/vision-model-image.txt`.
+
+This plugin does not run an MCP server and does not delegate inference to a second model. After selecting a model, switch the active ZCode model to that exact model and use ZCode's native multimodal runtime.
 
 ## Why This Is Separate From OpenCode Vision
 
-OpenCode Vision can use OpenCode runtime plugin hooks to register dynamic model-specific `vision-*` subagents and rewrite dropped image messages into local file markers.
+OpenCode Vision can use runtime plugin hooks to register dynamic model-specific `vision-*` subagents and rewrite dropped image messages into local file markers.
 
-ZCode plugins are static bundles of skills, commands, MCP servers, and user config. ZCode Vision therefore uses one static skill plus one MCP server:
+ZCode's plugin surface is static. The bundled ZCode examples use helper scripts from skills, so this plugin follows the same pattern:
 
-- `zcode_vision_models` discovers configured image-capable models.
-- `zcode_vision_pick_model` uses MCP elicitation when available, otherwise returns a short model list.
-- `zcode_vision_select_model` persists the selected exact model id.
-- `zcode_vision_analyze` sends local images to the selected model through MCP sampling.
+- the skill resolves the script relative to `SKILL.md`;
+- the script discovers configured candidate models;
+- the hint file recovers known model capabilities that ZCode config does not expose;
+- the user or agent switches the active model before asking visual questions.
 
 The detailed design comparison is in [docs/zcode-design.md](docs/zcode-design.md).
 
@@ -47,7 +49,7 @@ The repository includes `marketplace.json`, so ZCode can discover and install th
 
 ### Use
 
-After installing/enabling this plugin in ZCode, use `$zcode-vision` for visual tasks or run `/vision-model` to pick or re-pick the model.
+After installing/enabling this plugin in ZCode, run `/vision-model` to pick or re-pick the model. For a visual task, use `$zcode-vision`; the skill will inspect the saved choice or run the script when a choice is needed.
 
 To inspect discovery from a shell:
 
@@ -55,7 +57,13 @@ To inspect discovery from a shell:
 npm run models -- --all
 ```
 
-If discovery returns no models, enable a ZCode provider/account model that exposes image input and text output.
+To persist a model from a shell:
+
+```bash
+npm run models -- --model "provider-id/model-id"
+```
+
+If discovery returns no models, the configured model ids did not match config/catalog vision metadata or the bundled hints in `data/vision-model-hints.json`.
 
 ### Local Development Shortcut
 

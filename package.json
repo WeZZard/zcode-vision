@@ -1,18 +1,17 @@
 {
   "name": "zcode-vision",
-  "version": "0.1.0",
-  "description": "Vision routing for text-only ZCode sessions using configured image-capable ZCode models.",
+  "version": "0.1.1",
+  "description": "Script-assisted vision model selection for ZCode sessions.",
   "type": "module",
   "bin": {
-    "zcode-vision-models": "./scripts/zcode-vision-models.mjs",
-    "zcode-vision-mcp": "./mcp/zcode-vision-server.mjs"
+    "zcode-vision-models": "./scripts/zcode-vision-models.mjs"
   },
   "files": [
     ".zcode-plugin",
     "commands",
+    "data",
     "docs",
     "marketplace.json",
-    "mcp",
     "scripts",
     "skills",
     "README.md",
@@ -20,7 +19,6 @@
   ],
   "scripts": {
     "models": "node ./scripts/zcode-vision-models.mjs",
-    "mcp": "node ./mcp/zcode-vision-server.mjs",
     "test": "node --test tests/*.test.mjs",
     "pack:check": "npm pack --dry-run",
     "zcode:check-marketplace": "node /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs plugins list --json"
@@ -32,8 +30,7 @@
     "visual-judgment",
     "image-analysis",
     "screenshot",
-    "skill",
-    "mcp"
+    "skill"
   ],
   "engines": {
     "node": ">=20"

@@ -11,8 +11,9 @@ import { homedir } from "node:os"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const PICKER_MODEL_LIMIT = 6
-const PICKER_PROVIDER_LIMIT = 2
+const PICKER_PROVIDER_LIMIT = 3
 const env = process.env
+const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
 function usage() {
   return `Usage:
@@ -25,9 +26,10 @@ Options:
   --model <model>         Image-capable provider/model id to persist.
   --config-file <path>    ZCode config. Defaults to ~/.zcode/v2/config.json.
   --catalog-file <path>   ZCode model catalog JSON. Defaults to app resource discovery.
+  --hints-file <path>     Vision model hint JSON. Defaults to bundled hints.
   --data-dir <path>       Plugin data dir for persisted choice. Defaults to ~/.zcode/vision.
 
-Outputs JSON describing configured ZCode models with image input and text output.`
+Outputs JSON describing configured ZCode models identified as image-capable by metadata or hints.`
 }
 
 export function parseArgs(argv) {
@@ -36,6 +38,7 @@ export function parseArgs(argv) {
     selectedModel: undefined,
     configFile: undefined,
     catalogFile: undefined,
+    hintsFile: undefined,
     dataDir: undefined,
     help: false,
   }
@@ -64,6 +67,11 @@ export function parseArgs(argv) {
     }
     if (arg === "--catalog-file") {
       args.catalogFile = inlineValue ?? readRequiredValue(argv, i, arg)
+      if (inlineValue === undefined) i += 1
+      continue
+    }
+    if (arg === "--hints-file") {
+      args.hintsFile = inlineValue ?? readRequiredValue(argv, i, arg)
       if (inlineValue === undefined) i += 1
       continue
     }
@@ -104,6 +112,10 @@ function defaultDataDir() {
   return join(homeDir(), ".zcode", "vision")
 }
 
+function defaultHintsFile() {
+  return join(packageRoot, "data", "vision-model-hints.json")
+}
+
 function candidateCatalogFiles() {
   const explicit = env.ZCODE_MODEL_CATALOG_PATH
   const candidates = []
@@ -138,6 +150,13 @@ function readJsonFile(filepath, fallback) {
   return JSON.parse(readFileSync(filepath, "utf8"))
 }
 
+function readHintsFile(filepath) {
+  const raw = readJsonFile(filepath, { models: [] })
+  if (Array.isArray(raw)) return raw.filter(isRecord)
+  if (Array.isArray(raw.models)) return raw.models.filter(isRecord)
+  return []
+}
+
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
@@ -158,6 +177,18 @@ function providerDisplayName(providerID, providerConfig, catalogProvider) {
 
 function stringValue(value) {
   return typeof value === "string" && value.trim() ? value : undefined
+}
+
+function compactMatchKey(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "")
+}
+
+function matchStrings(value) {
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.filter((item) => typeof item === "string")
+  return []
 }
 
 function catalogProviders(catalog) {
@@ -283,11 +314,88 @@ function modelCapabilities(model) {
   return { input, output, supportsImage, supportsTextOutput }
 }
 
+function hintInputModalities(hint) {
+  return stringArray(hint.inputModalities ?? hint.modalities?.input)
+}
+
+function hintOutputModalities(hint) {
+  return stringArray(hint.outputModalities ?? hint.modalities?.output)
+}
+
+function hintPatterns(hint) {
+  return [
+    ...matchStrings(hint.id),
+    ...matchStrings(hint.model),
+    ...matchStrings(hint.name),
+    ...matchStrings(hint.names),
+    ...matchStrings(hint.match),
+    ...matchStrings(hint.matches),
+  ].filter(Boolean)
+}
+
+function modelMatchCandidates(provider, modelID, model) {
+  const candidates = [
+    modelID,
+    model.name,
+    model.id,
+    model.model,
+    `${provider.id}/${modelID}`,
+    `${provider.name}/${modelID}`,
+  ]
+
+  return candidates.filter((candidate) => typeof candidate === "string" && candidate.trim())
+}
+
+function hintMatchesModel(hint, provider, modelID, model) {
+  const patterns = hintPatterns(hint)
+    .map(compactMatchKey)
+    .filter(Boolean)
+  if (patterns.length === 0) return false
+
+  const candidates = modelMatchCandidates(provider, modelID, model)
+    .map(compactMatchKey)
+    .filter(Boolean)
+
+  return patterns.some((pattern) =>
+    candidates.some((candidate) => candidate === pattern || candidate.includes(pattern)),
+  )
+}
+
+function modelHint(provider, modelID, model, hints) {
+  return hints.find((hint) => hintMatchesModel(hint, provider, modelID, model))
+}
+
+function effectiveCapabilities(model, hint) {
+  const capabilities = modelCapabilities(model)
+  const hintedInput = hint ? hintInputModalities(hint) : []
+  const hintedOutput = hint ? hintOutputModalities(hint) : []
+  const hintSupportsImage = hintedInput.includes("image")
+  const hintSupportsTextOutput = hintedOutput.includes("text")
+  const supportsImage = capabilities.supportsImage || hintSupportsImage
+  const supportsTextOutput =
+    hintedOutput.length > 0 ? hintSupportsTextOutput : capabilities.supportsTextOutput
+  const input = hintedInput.length > 0 && hintSupportsImage ? hintedInput : capabilities.input
+  const output = hintedOutput.length > 0 ? hintedOutput : capabilities.output
+  let source = "config"
+
+  if (hintSupportsImage && capabilities.supportsImage) source = "config+hint"
+  else if (hintSupportsImage) source = "hint"
+
+  return {
+    input,
+    output,
+    supportsImage,
+    supportsTextOutput,
+    source,
+    hintSupportsImage,
+  }
+}
+
 function displayModel(providerID, modelID) {
   return `${providerID}/${modelID}`
 }
 
-function discoverVisionModels(config, catalog) {
+function discoverVisionModels(config, catalog, hints = []) {
   const models = []
   const providers = configuredProviders(config, catalog)
 
@@ -295,9 +403,10 @@ function discoverVisionModels(config, catalog) {
     for (const [modelID, model] of Object.entries(provider.models)) {
       if (!isRecord(model)) continue
       if (model.status && model.status !== "active") continue
-      const capabilities = modelCapabilities(model)
+      const hint = modelHint(provider, modelID, model, hints)
+      const capabilities = effectiveCapabilities(model, hint)
       if (!capabilities.supportsImage || !capabilities.supportsTextOutput) continue
-      const modelName = stringValue(model.name) ?? modelID
+      const modelName = stringValue(hint?.label) ?? stringValue(hint?.name) ?? stringValue(model.name) ?? modelID
       const fullModel = displayModel(provider.id, modelID)
       models.push({
         model: fullModel,
@@ -309,6 +418,8 @@ function discoverVisionModels(config, catalog) {
         supportsTextOutput: true,
         inputModalities: capabilities.input,
         outputModalities: capabilities.output,
+        capabilitySource: capabilities.source,
+        hintID: capabilities.hintSupportsImage ? stringValue(hint?.id) ?? null : null,
         contextLimit: contextLimit(model),
         maxOutputTokens: maxOutputTokens(model),
         reasoning: reasoningEnabled(model),
@@ -468,6 +579,8 @@ function pickerModelPayload(entry, options = {}) {
   const detail = [
     entry.name,
     "image",
+    entry.inputModalities?.includes("video") ? "video" : undefined,
+    entry.capabilitySource === "hint" ? "hint" : undefined,
     entry.reasoning ? "reasoning" : undefined,
     entry.contextLimit ? `${entry.contextLimit} ctx` : undefined,
   ].filter(Boolean)
@@ -476,6 +589,9 @@ function pickerModelPayload(entry, options = {}) {
     provider: entry.provider,
     providerName: entry.providerName,
     modelID: entry.modelID,
+    capabilitySource: entry.capabilitySource,
+    inputModalities: entry.inputModalities,
+    outputModalities: entry.outputModalities,
     pickerLabel: entry.pickerLabel,
     pickerDescription: `${detail.join(" - ")}${suffix}`,
   }
@@ -513,7 +629,7 @@ export function validateSelectedModel(model, modelsByID) {
   return entry
 }
 
-function buildWarnings({ configFile, catalogFile, configured, models }) {
+function buildWarnings({ configFile, catalogFile, hintsFile, configured, models }) {
   const warnings = []
   if (!existsSync(configFile)) {
     warnings.push(`ZCode config not found: ${configFile}`)
@@ -521,11 +637,14 @@ function buildWarnings({ configFile, catalogFile, configured, models }) {
   if (!catalogFile) {
     warnings.push("ZCode model catalog file was not found; only configured model metadata can be used.")
   }
+  if (!hintsFile || !existsSync(hintsFile)) {
+    warnings.push("Vision model hint file was not found; only config/catalog modality metadata can be used.")
+  }
   if (configured.providers.length === 0) {
     warnings.push("No enabled ZCode model providers were found in the provider registry.")
   }
   if (models.length === 0) {
-    warnings.push("No enabled ZCode provider currently exposes a model with image input and text output.")
+    warnings.push("No enabled configured ZCode model matched image-capable config/catalog metadata or vision hints.")
   }
   return warnings
 }
@@ -533,20 +652,23 @@ function buildWarnings({ configFile, catalogFile, configured, models }) {
 export function runDiscovery(options = {}) {
   const configFile = resolve(options.configFile ?? env.ZCODE_CONFIG_FILE ?? defaultConfigFile())
   const catalogFile = options.catalogFile ?? defaultCatalogFile()
+  const hintsFile = resolve(options.hintsFile ?? env.ZCODE_VISION_HINTS_FILE ?? defaultHintsFile())
   const dataDir = resolve(options.dataDir ?? env.ZCODE_VISION_DATA_DIR ?? defaultDataDir())
   const config = readJsonFile(configFile, {})
   const catalog = readJsonFile(catalogFile, {})
-  const configured = discoverVisionModels(config, catalog)
+  const hints = readHintsFile(hintsFile)
+  const configured = discoverVisionModels(config, catalog, hints)
   const allModels = configured.models
   const allModelsByID = new Map(allModels.map((entry) => [entry.model, entry]))
   const file = choiceFile(dataDir)
   const persistedChoice = readPersistedChoice(file, allModelsByID)
   const picker = pickerModels(allModels, persistedChoice)
-  const warnings = buildWarnings({ configFile, catalogFile, configured, models: allModels })
+  const warnings = buildWarnings({ configFile, catalogFile, hintsFile, configured, models: allModels })
 
   return {
     configFile,
     catalogFile: catalogFile ? resolve(catalogFile) : null,
+    hintsFile,
     dataDir,
     choiceFile: file,
     allModels,
@@ -567,6 +689,7 @@ export function runDiscovery(options = {}) {
       sources: {
         configFile,
         catalogFile: catalogFile ? resolve(catalogFile) : null,
+        hintsFile,
         dataDir,
       },
       warnings,

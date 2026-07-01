@@ -88,18 +88,75 @@ function catalog() {
   }
 }
 
-async function fixture({ config = zcodeConfig(), modelCatalog = catalog() } = {}) {
+function ollamaTextOnlyConfig() {
+  return {
+    provider: {
+      "custom-ollama-cloud": {
+        name: "Ollama Cloud",
+        enabled: true,
+        models: {
+          "kimi-k2.7-code-cloud": {
+            name: "Kimi K2.7 Code Cloud",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          "qwen3.5-cloud": {
+            name: "Qwen 3.5 Cloud",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          "minimax-m3-cloud": {
+            name: "MiniMax M3 Cloud",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          "text-only-cloud": {
+            name: "Text Only Cloud",
+            modalities: { input: ["text"], output: ["text"] },
+          },
+        },
+      },
+    },
+  }
+}
+
+function visionHints() {
+  return {
+    models: [
+      {
+        id: "kimi-k2.7-code-cloud",
+        label: "Kimi K2.7 Code Cloud",
+        inputModalities: ["text", "image", "video"],
+        outputModalities: ["text"],
+      },
+      {
+        id: "qwen3.5-cloud",
+        label: "Qwen 3.5 Cloud",
+        inputModalities: ["text", "image"],
+        outputModalities: ["text"],
+      },
+      {
+        id: "minimax-m3-cloud",
+        label: "MiniMax M3 Cloud",
+        inputModalities: ["text", "image", "video"],
+        outputModalities: ["text"],
+      },
+    ],
+  }
+}
+
+async function fixture({ config = zcodeConfig(), modelCatalog = catalog(), hints = { models: [] } } = {}) {
   const root = await mkdtemp(join(tmpdir(), "zcode-vision-models-test-"))
   const configFile = join(root, "config.json")
   const catalogFile = join(root, "catalog.json")
+  const hintsFile = join(root, "hints.json")
   const dataDir = join(root, "data")
   await mkdir(dataDir)
   await writeFile(configFile, JSON.stringify(config, null, 2))
   await writeFile(catalogFile, JSON.stringify(modelCatalog, null, 2))
+  await writeFile(hintsFile, JSON.stringify(hints, null, 2))
   return {
     root,
     configFile,
     catalogFile,
+    hintsFile,
     dataDir,
     choiceFile: join(dataDir, "vision-model-image.txt"),
   }
@@ -118,6 +175,7 @@ async function runZcode(fx, args = []) {
   const env = { ...process.env }
   delete env.ZCODE_CONFIG_FILE
   delete env.ZCODE_MODEL_CATALOG_PATH
+  delete env.ZCODE_VISION_HINTS_FILE
   delete env.ZCODE_VISION_DATA_DIR
   delete env.ZCODE_TEST_HOME
 
@@ -130,6 +188,8 @@ async function runZcode(fx, args = []) {
         fx.configFile,
         "--catalog-file",
         fx.catalogFile,
+        "--hints-file",
+        fx.hintsFile,
         "--data-dir",
         fx.dataDir,
         ...args,
@@ -184,6 +244,72 @@ test("catalog enriches configured builtin provider models", async () => {
   })
 })
 
+test("hints recover vision capability when ZCode config says text only", async () => {
+  await withFixture(
+    {
+      config: ollamaTextOnlyConfig(),
+      modelCatalog: { providers: [] },
+      hints: visionHints(),
+    },
+    async (fx) => {
+      const result = await runZcode(fx, ["--all"])
+      assert.equal(result.code, 0)
+      assert.deepEqual(new Set(modelIDs(result, "allModels")), new Set([
+        "custom-ollama-cloud/kimi-k2.7-code-cloud",
+        "custom-ollama-cloud/qwen3.5-cloud",
+        "custom-ollama-cloud/minimax-m3-cloud",
+      ]))
+      assert.equal(result.json.modelCount, 3)
+
+      const kimi = result.json.allModels.find(
+        (model) => model.model === "custom-ollama-cloud/kimi-k2.7-code-cloud",
+      )
+      assert.equal(kimi.capabilitySource, "hint")
+      assert.deepEqual(kimi.inputModalities, ["text", "image", "video"])
+      assert.deepEqual(kimi.outputModalities, ["text"])
+      assert.equal(modelIDs(result, "allModels").includes("custom-ollama-cloud/text-only-cloud"), false)
+    },
+  )
+})
+
+test("hint matching is independent from provider id", async () => {
+  const config = ollamaTextOnlyConfig()
+  config.provider["renamed-provider"] = config.provider["custom-ollama-cloud"]
+  delete config.provider["custom-ollama-cloud"]
+
+  await withFixture(
+    {
+      config,
+      modelCatalog: { providers: [] },
+      hints: visionHints(),
+    },
+    async (fx) => {
+      const result = await runZcode(fx, ["--all"])
+      assert.equal(result.code, 0)
+      assert.deepEqual(new Set(modelIDs(result, "allModels")), new Set([
+        "renamed-provider/kimi-k2.7-code-cloud",
+        "renamed-provider/qwen3.5-cloud",
+        "renamed-provider/minimax-m3-cloud",
+      ]))
+    },
+  )
+})
+
+test("text-only configured models without hints are excluded", async () => {
+  await withFixture(
+    {
+      config: ollamaTextOnlyConfig(),
+      modelCatalog: { providers: [] },
+    },
+    async (fx) => {
+      const result = await runZcode(fx, ["--all"])
+      assert.equal(result.code, 0)
+      assert.equal(result.json.modelCount, 0)
+      assert.match(result.json.warnings.join("\n"), /vision hints/u)
+    },
+  )
+})
+
 test("saving a model persists and marks the saved choice", async () => {
   await withFixture({}, async (fx) => {
     const save = await runZcode(fx, ["--model", "custom-local/local-vision-2"])
@@ -198,6 +324,31 @@ test("saving a model persists and marks the saved choice", async () => {
     const saved = next.json.models.find((model) => model.model === "custom-local/local-vision-2")
     assert.match(saved.pickerDescription, /Saved choice/u)
   })
+})
+
+test("saving a hinted model persists and marks the saved choice", async () => {
+  await withFixture(
+    {
+      config: ollamaTextOnlyConfig(),
+      modelCatalog: { providers: [] },
+      hints: visionHints(),
+    },
+    async (fx) => {
+      const save = await runZcode(fx, ["--model", "custom-ollama-cloud/minimax-m3-cloud"])
+      assert.equal(save.code, 0)
+      assert.equal(save.json.saved, true)
+      assert.equal(save.json.selectedModel, "custom-ollama-cloud/minimax-m3-cloud")
+
+      const next = await runZcode(fx)
+      assert.equal(next.json.selectionRequired, false)
+      assert.equal(next.json.selectedModel, "custom-ollama-cloud/minimax-m3-cloud")
+      const saved = next.json.models.find(
+        (model) => model.model === "custom-ollama-cloud/minimax-m3-cloud",
+      )
+      assert.match(saved.pickerDescription, /Saved choice/u)
+      assert.equal(saved.capabilitySource, "hint")
+    },
+  )
 })
 
 test("unknown saved model fails instead of being invented", async () => {
@@ -244,7 +395,7 @@ test("picker is capped and folds older versions per provider series", async () =
     assert.equal(result.code, 0)
     assert.ok(result.json.models.length <= 6)
     const localModels = result.json.models.filter((model) => model.provider === "custom-local")
-    assert.ok(localModels.length <= 2)
+    assert.ok(localModels.length <= 3)
     assert.equal(modelIDs(result).includes("custom-local/local-vision-1"), false)
     assert.equal(modelIDs(result).includes("custom-local/local-vision-2"), true)
   })

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "description": "Provider-independent hints for configured ZCode models whose runtime modality is not represented in ~/.zcode/v2/config.json.",
+  "models": [
+    {
+      "id": "kimi-k2.7-code-cloud",
+      "label": "Kimi K2.7 Code Cloud",
+      "matches": [
+        "kimi-k2.7-code-cloud",
+        "Kimi K2.7 Code Cloud"
+      ],
+      "inputModalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "outputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "qwen3.5-cloud",
+      "label": "Qwen 3.5 Cloud",
+      "matches": [
+        "qwen3.5-cloud",
+        "Qwen 3.5 Cloud"
+      ],
+      "inputModalities": [
+        "text",
+        "image"
+      ],
+      "outputModalities": [
+        "text"
+      ]
+    },
+    {
+      "id": "minimax-m3-cloud",
+      "label": "MiniMax M3 Cloud",
+      "matches": [
+        "minimax-m3-cloud",
+        "MiniMax M3 Cloud"
+      ],
+      "inputModalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "outputModalities": [
+        "text"
+      ]
+    }
+  ]
+}

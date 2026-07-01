@@ -7,6 +7,18 @@ skills:
 
 Use the `zcode-vision` skill.
 
-If `$ARGUMENTS` is a non-empty exact `provider/model` id, call `zcode_vision_select_model` with that model.
+Resolve `../../scripts/zcode-vision-models.mjs` relative to the skill directory.
 
-Otherwise call `zcode_vision_pick_model` with `force: true`. If native selection is unavailable and the tool returns `selectionRequired: true`, ask the user to choose one exact `models[].model`, then call `zcode_vision_select_model`.
+If `$ARGUMENTS` is a non-empty exact `provider/model` id, run:
+
+```bash
+node "$ZCODE_VISION_SCRIPT" --model "$ARGUMENTS"
+```
+
+Otherwise run:
+
+```bash
+node "$ZCODE_VISION_SCRIPT"
+```
+
+If the output has `selectionRequired: true`, ask the user to choose one exact `models[].model`, then persist it with `--model`.

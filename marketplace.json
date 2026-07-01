@@ -5,12 +5,11 @@
   "plugins": [
     {
       "name": "zcode-vision",
-      "description": "Vision routing for text-only ZCode sessions using configured image-capable ZCode models.",
-      "version": "0.1.0",
+      "description": "Script-assisted vision model selection for ZCode sessions.",
+      "version": "0.1.1",
       "source": ".",
       "tags": [
         "vision",
-        "mcp",
         "skill",
         "screenshot"
       ]
